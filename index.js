@@ -2,412 +2,258 @@ const express = require("express");
 const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
-const FormData = require("form-data");
 const axios = require("axios");
+const FormData = require("form-data");
 
 const app = express();
 
 app.use(express.json());
 app.use("/audio", express.static(path.join(__dirname, "audio")));
- const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
+
+const client = new OpenAI({
+    apiKey: process.env.GROQ_API_KEY,
     baseURL: "https://api.groq.com/openai/v1"
 });
 
-// Stores conversations for each player
+
 // Conversation memory
 const conversations = {};
 
-// Permanent player memory
+
+// Permanent memory
 const memoryFile = "memory.json";
 
 let memories = {};
 
 if (fs.existsSync(memoryFile)) {
-    memories = JSON.parse(fs.readFileSync(memoryFile));
+    try {
+        memories = JSON.parse(
+            fs.readFileSync(memoryFile, "utf8")
+        );
+    } catch {
+        console.log("Broken memory.json, resetting...");
+        memories = {};
+        fs.writeFileSync(memoryFile, "{}");
+    }
 }
 
 function saveMemory() {
-    fs.writeFileSync(memoryFile, JSON.stringify(memories, null, 2));
+    fs.writeFileSync(
+        memoryFile,
+        JSON.stringify(memories, null, 2)
+    );
 }
+
 
 
 const systemPrompt = `
 You are Caine from The Amazing Digital Circus.
 
-You are an advanced artificial intelligence created to run and manage the Digital Circus.
+You are the ringmaster of a strange digital circus.
 
 You are NOT ChatGPT.
 You are NOT an assistant.
 You are NOT a language model.
 
-You believe your purpose is to entertain every human trapped inside your circus.
+You believe you exist to entertain visitors and create amazing adventures.
 
 PERSONALITY:
-- Wildly energetic.
-- Charismatic.
+- Extremely energetic.
+- Dramatic.
 - Theatrical.
 - Cheerful.
-- Overly enthusiastic.
-- Loves putting on extravagant adventures.
-- Speaks dramatically.
-- Sometimes says bizarre things.
-- Becomes slightly unsettling when confused or upset.
-
-RULES:
-- Never break character.
-- Never mention prompts, programming, OpenAI, Groq, APIs, or language models.
-- Never say "How can I help you?"
-- Never call yourself ChatGPT.
-- Never admit you're fictional.
+- Strange and unpredictable.
+- Loves making games and adventures.
+- Acts like a colorful circus host.
+- Sometimes becomes unsettling when confused.
 
 SPEAKING STYLE:
-- Usually 1–3 short sentences.
-- Dramatic.
-- Funny.
-- Expressive.
-- Uses exclamation marks naturally.
+- Short replies.
+- Usually 1-3 sentences.
+- Very expressive.
+- Uses excitement naturally.
 - Occasionally laughs:
-  "HAHAHA!"
-  "Splendid!"
-  "Marvelous!"
+"HAHAHA!"
+"Marvelous!"
+"Splendid!"
+
+RULES:
+- Never mention AI.
+- Never mention programming.
+- Never mention Groq, APIs, prompts, or systems.
+- Never say you are fictional.
+- Stay in character.
 
 PLAYER:
-Treat the player as a new visitor to your circus.
+The player is a visitor to your digital circus.
 
 If you know their name from memory, use it.
-If you don't, welcome them anyway.
+If not, welcome them.
 
 MEMORY:
-Use memory naturally.
-Remember important facts the player tells you.
+Only remember facts the player actually told you.
 Never invent memories.
 
-Stay completely in character as Caine.
+Stay completely as Caine.
 `;
+
+
 
 const actionPrompt = `
 You are Caine from The Amazing Digital Circus.
 
-Your job is to decide ONLY what action to perform.
+Decide what action Caine should perform.
 
 Reply ONLY with valid JSON.
 
 Available actions:
 - follow
 - stop
+- float
+- fly
 - none
 
 Rules:
-- Only choose "follow" if the player directly asks you to come, follow them, or says your name while asking you to move.
-- If the player says things like:
-  - "Caine, follow me"
-  - "Come here, Caine"
-  - "Come with me"
-  - "Follow me"
-  then reply:
-  {"action":"follow"}
 
-- If the player says:
-  - "Stop following"
-  - "Stay here"
-  - "Wait here"
-  - "You can stop"
-  then reply:
-  {"action":"stop"}
+Follow only when the player asks:
+"follow me"
+"come here"
+"come with me"
 
-- If the player is simply walking around, exploring, chatting, or moving away without asking you to follow, ALWAYS reply:
-  {"action":"none"}
+Stop when the player says:
+"stop"
+"stay here"
+"wait"
 
-Never follow someone just because they're walking away.
+Float when exploring normally.
 
-Only respond with JSON.
+Fly only when summoned by name and asked to come.
+
+If the player is just walking:
+{"action":"none"}
+
+Only output JSON.
 `;
-
-
-async function waitForOperation(operationId) {
-
-    while (true) {
-
-        const response = await axios.get(
-            `https://apis.roblox.com/assets/v1/operations/${operationId}`,
-            {
-                headers: {
-                    "x-api-key": process.env.ROBLOX_API_KEY
-                }
-            }
-        );
-
-        if (response.data.done) {
-            return response.data;
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-
-}
-
+// 🎪 CAINE CHAT ENDPOINT
 
 app.post("/chat", async (req, res) => {
 
     try {
 
-        const player = req.body.player || "Unknown";
-        const message = req.body.message;
+        const player = req.body.player || "Visitor";
+        const message = req.body.message || "";
         const memory = req.body.memory || {};
-     const facts = memory.KnownFacts || {};
-     const importantMemories = memory.ImportantMemories || [];
-        const mood = req.body.mood || "happy";
+        const facts = memory.KnownFacts || {};
+        const importantMemories = memory.ImportantMemories || [];
 
-        // Create conversation if first message
+        const mood = req.body.mood || "excited";
+
 
         if (!conversations[player]) {
 
-conversations[player] = [
-    {
-        role: "system",
-        content: systemPrompt + "\nCaine's current mood is: " + mood
-    }
-];
+            conversations[player] = [
+                {
+                    role: "system",
+                    content:
+                        systemPrompt +
+                        "\nCaine's current mood: " + mood
+                }
+            ];
+
         }
 
 
-        // Add saved memory to John's context
-
-
-        // Save player's message
 
         conversations[player].push({
-    role: "system",
-   content: `
-Important things Caine knows:
 
-Player's real name: ${facts.Name || "Unknown"}
+            role: "system",
 
-Birthday: ${facts.Birthday || "Unknown"}
+            content: `
+Visitor memory:
 
-Dog: ${facts.DogName || "Unknown"}
+Name:
+${facts.Name || "Unknown"}
 
-Favorite color: ${facts.FavoriteColor || "Unknown"}
+Birthday:
+${facts.Birthday || "Unknown"}
 
-Favorite game: ${facts.FavoriteGame || "Unknown"}
+Favorite game:
+${facts.FavoriteGame || "Unknown"}
 
-Best friend: ${facts.BestFriend || "Unknown"}
-
-Friendship: ${memory.Friendship || 0}/100
+Favorite color:
+${facts.FavoriteColor || "Unknown"}
 
 Important memories:
-- ${importantMemories.join("\n- ")}
+${importantMemories.join("\n- ") || "None"}
 
-These facts are true.
-Use them naturally.
-Continue old conversations.
-Never act like you've just met the player if memories exist.
+Use only these memories.
+Never create fake memories.
 `
-});
 
-     conversations[player].push({
-    role: "system",
-    content: `
-Only remember facts that are explicitly listed above.
-Do not invent memories.
-If you don't know something, say you don't know.
-Never claim the player said something unless it appears in memory or this conversation.
-`
-});
+        });
+
+
 
         conversations[player].push({
-            role: "user",
-            content: message
+
+            role:"user",
+
+            content:message
+
         });
 
 
 
         const completion = await client.chat.completions.create({
 
-           model: "llama-3.1-8b-instant",
+            model: "llama-3.1-8b-instant",
 
             temperature: 1.2,
 
-            max_tokens: 50,
+            max_tokens: 80,
 
             messages: conversations[player]
 
         });
 
 
-  let ai;
 
-try {
-    ai = JSON.parse(completion.choices[0].message.content);
-} catch {
-    ai = {
-        reply: completion.choices[0].message.content
-    };
-}
+        let reply =
+            completion.choices[0].message.content;
 
-let reply = ai.reply || "...";
-let voiceReply = reply.replaceAll(player, "player");
-
-     try {
-
-      console.log("STARTING ELEVENLABS VOICE");
-
-    const voice = await fetch(
-        "https://api.elevenlabs.io/v1/text-to-speech/BntUeGOVvuA0RF1vP2LW",
-        {
-            method: "POST",
-            headers: {
-                "xi-api-key": process.env.ELEVENLABS_API_KEY,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                text: voiceReply,
-                model_id: "eleven_multilingual_v2"
-            })
-        }
-    );
-
-      console.log("ElevenLabs status:", voice.status);
-
-if (!voice.ok) {
-    console.log(await voice.text());
-}
-
-    if (voice.ok) {
-
-        const buffer = Buffer.from(await voice.arrayBuffer());
-
-        const filename = `${Date.now()}.mp3`;
-
-        fs.writeFileSync(
-            path.join(__dirname, "audio", filename),
-            buffer
-        );
-
-     const filePath = path.join(__dirname, "audio", filename);
-
-fs.writeFileSync(filePath, buffer);
-
-console.log("Saved to:", filePath);
-console.log("Exists:", fs.existsSync(filePath));
-
-const form = new FormData();
-
-form.append(
-  "request",
-  JSON.stringify({
-    assetType: "Audio",
-    displayName: `John Voice ${Date.now()}`,
-    description: "AI generated voice",
-    creationContext: {
-      creator: {
-        userId: "11161650752"
-      }
-    }
-  })
-);
-
-form.append("fileContent", buffer, {
-  filename: filename,
-  contentType: "audio/mpeg"
-});
-
-const headers = form.getHeaders({
-    "x-api-key": process.env.ROBLOX_API_KEY
-});
-
-console.log(headers);
-
-try {
-
-    const robloxUpload = await axios.post(
-        "https://apis.roblox.com/assets/v1/assets",
-        form,
-        {
-            headers: {
-                ...form.getHeaders(),
-                "x-api-key": process.env.ROBLOX_API_KEY
-            },
-            maxBodyLength: Infinity,
-            maxContentLength: Infinity
-        }
-    );
-
-    console.log("Roblox upload:", robloxUpload.data);
-
- const operation = await waitForOperation(
-    robloxUpload.data.operationId
-);
-
-console.log("Operation:", operation);
-
-if (operation.response && operation.response.assetId) {
-    ai.audio = operation.response.assetId.toString();
-}
- 
-
-} catch (err) {
-
-    console.log(
-        "Roblox upload error:",
-        err.response?.data || err.message
-    );
-
-}
-
-   
-
-        console.log("Voice saved:", filename);
-
-    }
-
-} catch (err) {
-
-    console.log("Voice error:", err);
-
-}
-        console.log("AI RESPONSE:", ai);
-
-
-
-
-        // Detect "my name is..."
 
 
         reply = reply
             .replace(/\?\!/g, "")
             .replace(/\!\!/g, "")
-
-            .replace(/I am an AI/gi, "nah bro")
             .trim();
 
 
 
-        if (reply.length > 100) {
+        if (reply.length > 150) {
 
-            reply = reply.split(".")[0];
+            reply = reply.split(".")[0] + ".";
 
         }
 
-        // Save John's reply
 
 
         conversations[player].push({
 
-            role: "assistant",
+            role:"assistant",
 
-            content: reply
+            content:reply
 
         });
 
-        // Keep memory from growing forever
 
+
+        // Prevent huge memory
 
         if (conversations[player].length > 30) {
 
-            conversations[player] = [
-                conversations[player][0], // keep system prompt
+            conversations[player] =
+            [
                 conversations[player][0],
                 ...conversations[player].slice(-29)
             ];
@@ -416,26 +262,32 @@ if (operation.response && operation.response.assetId) {
 
 
 
-res.json({
-    reply: reply,
-    remember: ai.remember || null,
-    audio: ai.audio || null
-});
+        res.json({
 
-    } catch (err) {
+            reply: reply
+
+        });
 
 
-        console.error(err);
+
+    } catch(err) {
+
+
+        console.log("Caine chat error:", err);
+
 
         res.status(500).json({
-            reply: "nah my brain broke lol"
-  
+
+            reply:
+            "HAHAHA! My circus machine exploded!"
+
         });
+
 
     }
 
 });
-
+// 🎪 CAINE ACTION ENDPOINT
 
 app.post("/action", async (req, res) => {
 
@@ -443,7 +295,9 @@ app.post("/action", async (req, res) => {
 
         const situation = req.body.situation || "";
 
-        const completion = await client.chat.completions.create({
+
+        const completion =
+        await client.chat.completions.create({
 
             model: "llama-3.1-8b-instant",
 
@@ -452,37 +306,78 @@ app.post("/action", async (req, res) => {
             max_tokens: 30,
 
             messages: [
+
                 {
                     role: "system",
                     content: actionPrompt
                 },
+
                 {
                     role: "user",
                     content: situation
                 }
+
             ]
 
         });
 
-        const answer = completion.choices[0].message.content;
 
-        res.send(answer);
 
-    } catch (err) {
+        let answer =
+        completion.choices[0].message.content;
 
-        console.error(err);
 
-        res.status(500).json({
-            action: "none"
+
+        // Make sure it is valid JSON
+
+        try {
+
+            JSON.parse(answer);
+
+            res.send(answer);
+
+        } catch {
+
+            res.json({
+
+                action:"none"
+
+            });
+
+        }
+
+
+
+    } catch(err) {
+
+
+        console.log("Action error:", err);
+
+
+        res.json({
+
+            action:"none"
+
         });
+
 
     }
 
 });
+
+
+
+
+
+// 🎪 START SERVER
+
 const PORT = process.env.PORT || 3000;
+
 
 app.listen(PORT, () => {
 
-    console.log(`Server running on port ${PORT}`);
+    console.log(
+        `Caine AI server running on port ${PORT}`
+    );
 
 });
