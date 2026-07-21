@@ -415,10 +415,10 @@ app.post("/voice", async (req, res) => {
 
     } catch(err) {
 
-        console.log(
-            "Fish voice error:",
-            err.response?.data || err
-        );
+   console.log(
+    "Fish Audio error:",
+    err.response?.data?.toString() || err
+);
 
 
         res.status(500).json({
