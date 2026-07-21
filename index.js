@@ -382,7 +382,7 @@ app.post("/voice", async (req, res) => {
             "https://api.fish.audio/v1/tts",
             {
                 text: text,
-                reference_id: FISH_VOICE_ID,
+                model: FISH_VOICE_ID,
                 format: "mp3"
             },
             {
