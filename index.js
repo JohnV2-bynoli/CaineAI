@@ -5,6 +5,9 @@ const path = require("path");
 const axios = require("axios");
 const FormData = require("form-data");
 
+const FISH_API_KEY = process.env.FISH_AUDIO_API_KEY;
+const FISH_VOICE_ID = "058af784fc58488d92f04b7e2d15a3dd";
+
 const app = express();
 
 app.use(express.json());
@@ -364,6 +367,68 @@ app.post("/action", async (req, res) => {
     }
 
 });
+
+
+
+// 🎪 CAINE FISH AUDIO VOICE
+
+app.post("/voice", async (req, res) => {
+
+    try {
+
+        const text = req.body.text;
+
+        const response = await axios.post(
+            "https://api.fish.audio/v1/tts",
+            {
+                text: text,
+                reference_id: FISH_VOICE_ID,
+                format: "mp3"
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${FISH_API_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                responseType: "arraybuffer"
+            }
+        );
+
+
+        const fileName = Date.now() + ".mp3";
+
+        const filePath =
+            path.join(__dirname, "audio", fileName);
+
+
+        fs.writeFileSync(
+            filePath,
+            response.data
+        );
+
+
+        res.json({
+            url:
+            `/audio/${fileName}`
+        });
+
+
+    } catch(err) {
+
+        console.log(
+            "Fish voice error:",
+            err.response?.data || err
+        );
+
+
+        res.status(500).json({
+            error:"voice failed"
+        });
+
+    }
+
+});
+
 
 
 
